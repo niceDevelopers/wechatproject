@@ -1,5 +1,6 @@
 package com.fiany.wechat.service.impl;
 
+import com.fiany.wechat.converter.OrderMaster2OrderDTOConverter;
 import com.fiany.wechat.dataobject.OrderDetail;
 import com.fiany.wechat.dataobject.OrderMaster;
 import com.fiany.wechat.dataobject.ProductInfo;
@@ -14,11 +15,14 @@ import com.fiany.wechat.repository.OrderMasterRepository;
 import com.fiany.wechat.service.IOrderService;
 import com.fiany.wechat.service.IProductInfoService;
 import com.fiany.wechat.util.KeyUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
 import javax.transaction.Transactional;
 import java.math.BigDecimal;
@@ -32,6 +36,7 @@ import java.util.stream.Collectors;
  * @Data : 2018/4/8 22:07
  */
 @Service
+@Slf4j
 public class OrderServiceImpl implements IOrderService {
 
     @Autowired
@@ -88,17 +93,60 @@ public class OrderServiceImpl implements IOrderService {
 
     @Override
     public OrderDTO findOne(String orderId) {
-        return null;
+        OrderMaster orderMaster = orderMasterRepository.findById(orderId).get();
+        if(orderMaster == null){
+            throw new SellException(ResultEnum.ORDER_NOT_EXIST);
+        }
+
+        List<OrderDetail> orderDetailList = orderDetailRepository.findByOrderId(orderId);
+        if(orderDetailList == null){
+            throw new SellException(ResultEnum.ORDER_DETAIL_NOT_EXIST);
+        }
+        OrderDTO orderDTO = new OrderDTO();
+        BeanUtils.copyProperties(orderMaster,orderDTO);
+        orderDTO.setOrderDetailList(orderDetailList);
+        return orderDTO;
     }
 
     @Override
     public Page<OrderDTO> findList(String buyerOpenid, Pageable pageable) {
-        return null;
+        Page<OrderMaster> orderMasterPage = orderMasterRepository.findByBuyerOpenid(buyerOpenid,pageable);
+        List<OrderMaster> orderMasterList = orderMasterPage.getContent();
+        List<OrderDTO> orderDTOList = OrderMaster2OrderDTOConverter.converter(orderMasterList);
+        return new PageImpl<OrderDTO>(orderDTOList,pageable,orderMasterPage.getTotalElements());
     }
 
     @Override
     public OrderDTO cancel(OrderDTO orderDTO) {
-        return null;
+        // 判断订单状态
+        if(!OrderStatusEnum.NEW.getCode().equals(orderDTO.getOrderStatus())){
+            log.error("【取消订单】订单状态不正确,orderId={},orderStatus={}",orderDTO.getOrderId(),orderDTO.getOrderStatus());
+            throw new SellException(ResultEnum.ORDER_STATUS_ERROR);
+        }
+        // 修改订单状态
+        orderDTO.setOrderStatus(OrderStatusEnum.CANCEWL.getCode());
+        OrderMaster orderMaster = new OrderMaster();
+        BeanUtils.copyProperties(orderDTO,orderMaster);
+        OrderMaster updateResult = orderMasterRepository.save(orderMaster);
+        if(updateResult == null){
+            log.error("【取消订单】订单更新失败,orderMaster={}",orderMaster);
+            throw new SellException(ResultEnum.ORDER_UPDATE_FAIL);
+        }
+
+        // 返还库存
+        if(CollectionUtils.isEmpty(orderDTO.getOrderDetailList())){
+            log.error("【取消订单】订单中无商品详情");
+            throw new SellException(ResultEnum.ORDER_DETAIL_IS_EMPTY);
+        }
+        List<CartDTO> cartDTOList = orderDTO.getOrderDetailList().stream().map(e ->
+                new CartDTO(e.getProductId(),e.getProductQuantity())
+        ).collect(Collectors.toList());
+        iProductInfoService.increaseStock(cartDTOList);
+        // 如果已支付，需要退款
+        if(PayStatusEnum.SUCCESS.equals(orderDTO.getPayStatus())){
+            // TODO 退款
+        }
+        return orderDTO;
     }
 
     @Override
