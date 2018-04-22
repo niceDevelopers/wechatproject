@@ -3,6 +3,7 @@ package com.fiany.wechat.service.impl;
 import com.fiany.wechat.dataobject.OrderDetail;
 import com.fiany.wechat.dto.OrderDTO;
 import com.fiany.wechat.enums.OrderStatusEnum;
+import com.fiany.wechat.enums.PayStatusEnum;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -65,9 +66,15 @@ public class OrderServiceImplTest {
 
     @Test
     public void finished() {
+        OrderDTO orderDTO = orderService.findOne(BUYER_ORDERID);
+        OrderDTO result = orderService.finished(orderDTO);
+        Assert.assertEquals(result.getOrderStatus(),OrderStatusEnum.FINISHED.getCode());
     }
 
     @Test
     public void paid() {
+        OrderDTO orderDTO = orderService.findOne(BUYER_ORDERID);
+        OrderDTO result = orderService.paid(orderDTO);
+        Assert.assertEquals(result.getPayStatus(), PayStatusEnum.SUCCESS.getCode());
     }
 }
